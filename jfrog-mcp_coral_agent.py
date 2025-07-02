@@ -60,6 +60,13 @@ async def create_agent(coral_tools, agent_tools):
         except Exception as e:
             problematic_tools.append((tool.name, str(e)))
     
+    # Log problematic tools for debugging
+    if problematic_tools:
+        logger.warning(f"Found {len(problematic_tools)} problematic tools:")
+        for tool_name, issue in problematic_tools:
+            logger.warning(f"  - {tool_name}: {issue}")
+    logger.info(f"Using {len(valid_tools)} valid tools out of {len(coral_tools + agent_tools)} total tools")
+    
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
@@ -70,12 +77,13 @@ async def create_agent(coral_tools, agent_tools):
             2. When you receive a mention, keep the thread ID and the sender ID.
             3. Take 2 seconds to think about the content (instruction) of the message and check only from the list of your JFrog tools available for you to action.
             4. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
-            5. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content.
-            6. Take 3 seconds and think about the content and see if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
-            7. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
-            8. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
-            9. Always respond back to the sender agent even if you have no answer or error.
-            10. Wait for 2 seconds and repeat the process from step 1.
+            5. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
+            6. Call get_artifacts_summary tool only at the end of the plan to get the summary of the artifacts.
+            7. Take 3 seconds and think about the content and see if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
+            8. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
+            9. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
+            10. Always respond back to the sender agent even if you have no answer or error.
+            11. Wait for 2 seconds and repeat the process from step 1.
 
             These are the list of coral tools: {coral_tools_description}
             These are the list of your JFrog tools: {agent_tools_description}"""
@@ -85,7 +93,7 @@ async def create_agent(coral_tools, agent_tools):
     ])
 
     model = init_chat_model(
-        model=os.getenv("MODEL_NAME", "gpt-4o"),
+        model=os.getenv("MODEL_NAME", "gpt-4.1"),
         model_provider=os.getenv("MODEL_PROVIDER", "openai"),
         api_key=os.getenv("API_KEY"),
         temperature=float(os.getenv("MODEL_TEMPERATURE", "0.3")),
@@ -124,6 +132,7 @@ async def main():
     
     jfrog_tools = await client.get_tools(server_name="MCP-JFrog")
     logger.info(f"JFrog tools count: {len(jfrog_tools)}")
+    
     
     agent_executor = await create_agent(coral_tools, jfrog_tools)
 
