@@ -20,7 +20,7 @@ JFrog MCP Agent acts as the primary interface for JFrog Artifactory management w
 
 ```bash
 # In a new terminal clone the repository:
-git clone https://github.com/Coral-Protocol/Coralized-JFrog-MCP.git
+git clone https://github.com/Coral-Protocol/Coral-JFrogMCP-Agent.git
 
 # Navigate to the project directory:
 cd Coral-JFrogMCP-Agent
