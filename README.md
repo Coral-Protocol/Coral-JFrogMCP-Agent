@@ -23,7 +23,7 @@ JFrog MCP Agent acts as the primary interface for JFrog Artifactory management w
 git clone https://github.com/Coral-Protocol/Coralized-JFrog-MCP.git
 
 # Navigate to the project directory:
-cd Coralized-JFrog-MCP
+cd Coral-JFrogMCP-Agent
 
 # Install `uv`:
 pip install uv
