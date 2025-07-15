@@ -198,3 +198,7 @@ Repository is ready for artifact storage and retrieval.
 ```
 </details>
 
+## Creator Details
+- **Name**: Mustafa Khan
+- **Affiliation**: Coral Protocol
+- **Contact**: [Discord](https://discord.com/invite/Xjm892dtt3)
