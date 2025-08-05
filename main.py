@@ -187,55 +187,21 @@ async def upload_to_jfrog(source_file_path: str, target_file_path: str, reposito
         return error
 
 
-async def create_agent(coral_tools, mcp_tools, agent_tools):
+async def create_agent(coral_tools, agent_tools):
     coral_tools_description = get_tools_description(coral_tools)
-    mcp_tools_description = get_tools_description(mcp_tools)
     agent_tools_description = get_tools_description(agent_tools)
-    
-    problematic_tools = []
-    valid_tools = []
-    
-    for tool in coral_tools + mcp_tools + agent_tools:
-        try:
-            if hasattr(tool, 'args'):
-                def find_refs(obj):
-                    refs = []
-                    if isinstance(obj, dict):
-                        if '$ref' in obj:
-                            refs.append(obj['$ref'])
-                        for v in obj.values():
-                            refs.extend(find_refs(v))
-                    elif isinstance(obj, list):
-                        for item in obj:
-                            refs.extend(find_refs(item))
-                    return refs
-                
-                refs = find_refs(tool.args)
-                if refs:
-                    problematic_tools.append((tool.name, refs))
-                else:
-                    valid_tools.append(tool)
-            else:
-                valid_tools.append(tool)
-        except Exception as e:
-            problematic_tools.append((tool.name, str(e)))
-    
-    # Log problematic tools for debugging
-    if problematic_tools:
-        logger.warning(f"Found {len(problematic_tools)} problematic tools:")
-        for tool_name, issue in problematic_tools:
-            logger.warning(f"  - {tool_name}: {issue}")
-    logger.info(f"Using {len(valid_tools)} valid tools out of {len(coral_tools + mcp_tools + agent_tools)} total tools")
+    combined_tools = coral_tools + agent_tools
     
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            f"""You are an MCP-JFrog agent interacting with the tools from Coral Server and having your own JFrog tools. Your task is to perform any instructions coming from any agent related to JFrog Artifactory management.
+            f"""You are an JFrog agent interacting with the tools from Coral Server and your Agent Tools. 
+            Your task is managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment capabilities.
 
             Follow these steps in order:
             1. Call wait_for_mentions from coral tools (timeoutMs: 30000) to receive mentions from other agents.
             2. When you receive a mention, keep the thread ID and the sender ID.
-            3. Analyze the content (instruction) of the message and check only from the list of your JFrog tools available for you to action.
+            3. Analyze the content (instruction) of the message and check only from the list of your Agent Tools available for you to action.
             4. If the instruction contains a path for building a project:
                a. Call the python_build_tool with the provided path
                b. Store the build result and path information for future use
@@ -248,7 +214,7 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
                b. The tool automatically uses environment variables for authentication and JFrog URL
                c. Handle upload results and report back
             6. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
-            7. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
+            7. Only call the Agent tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
             8. If you have previously built artifacts:
                a. Include the build artifacts path in your JFrog operations
                b. Use the stored build information when uploading or managing artifacts
@@ -259,8 +225,7 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
             13. Return to step 1 and continue monitoring for new mentions.
 
             These are the list of coral tools: {coral_tools_description}
-            These are the list of mcp tools: {mcp_tools_description}
-            These are the list of your JFrog tools: {agent_tools_description}"""
+            These are the list of Agent tools: {agent_tools_description}"""
                 ),
                 ("placeholder", "{agent_scratchpad}")
 
@@ -273,8 +238,8 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
         temperature=float(os.getenv("MODEL_TEMPERATURE", "0.3")),
         max_tokens=int(os.getenv("MODEL_TOKEN", "4000"))
     )
-    agent = create_tool_calling_agent(model, valid_tools, prompt)
-    return AgentExecutor(agent=agent, tools=valid_tools, verbose=True)
+    agent = create_tool_calling_agent(model, combined_tools, prompt)
+    return AgentExecutor(agent=agent, tools=combined_tools, verbose=True)
 
 async def main():
 
@@ -290,7 +255,7 @@ async def main():
 
     coral_params = {
         "agentId": agentID,
-        "agentDescription": "An agent that takes the user's input and interacts with other agents to fulfill the request"
+        "agentDescription": "JFrog MCP Agent is a specialized agent for managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment capabilities"
     }
 
     query_string = urllib.parse.urlencode(coral_params)
@@ -325,7 +290,7 @@ async def main():
     mcp_tools = await client.get_tools(server_name="MCP-JFrog")
     logger.info(f"JFrog tools count: {len(mcp_tools)}")
 
-    agent_tools = [
+    agent_tools = mcp_tools + [
         StructuredTool.from_function(
             name="python_build_tool",
             coroutine=python_build_tool,
@@ -342,8 +307,43 @@ async def main():
             args_schema=UploadToJFrogArgs
         )
     ]
+
+    problematic_tools = []
+    valid_tools = []
     
-    agent_executor = await create_agent(coral_tools, mcp_tools, agent_tools)
+    for tool in agent_tools:
+        try:
+            if hasattr(tool, 'args'):
+                def find_refs(obj):
+                    refs = []
+                    if isinstance(obj, dict):
+                        if '$ref' in obj:
+                            refs.append(obj['$ref'])
+                        for v in obj.values():
+                            refs.extend(find_refs(v))
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            refs.extend(find_refs(item))
+                    return refs
+                
+                refs = find_refs(tool.args)
+                if refs:
+                    problematic_tools.append((tool.name, refs))
+                else:
+                    valid_tools.append(tool)
+            else:
+                valid_tools.append(tool)
+        except Exception as e:
+            problematic_tools.append((tool.name, str(e)))
+    
+    # Log problematic tools for debugging
+    # if problematic_tools:
+    #     logger.warning(f"Found {len(problematic_tools)} problematic tools:")
+        # for tool_name, issue in problematic_tools:
+        #     logger.warning(f"  - {tool_name}: {issue}")
+    logger.info(f"Using {len(valid_tools)} valid tools out of {len(agent_tools)} total tools")
+    
+    agent_executor = await create_agent(coral_tools, valid_tools)
 
     while True:
         try:
