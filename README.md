@@ -44,21 +44,21 @@ Get the required credentials:
 
 ```bash
 # Create .env file in project root
-cp -r env.example .env
+cp -r .env_sample .env
 ```
 
 Required environment variables:
-- `API_KEY`: Your LLM provider API key
+- `MODEL_API_KEY`: Your LLM provider API key
+- `MODEL_NAME`: LLM model name
+- `MODEL_PROVIDER`: LLM provider
 - `CORAL_SSE_URL`: Coral server SSE endpoint URL
 - `CORAL_AGENT_ID`: Your Coral agent identifier
 - `JFROG_ACCESS_TOKEN`: JFrog platform access token
 - `JFROG_URL`: Your JFrog instance URL (e.g., https://mycompany.jfrog.io)
 
 Optional environment variables:
-- `MODEL_NAME`: LLM model name (default: "gpt-4o")
-- `MODEL_PROVIDER`: LLM provider (default: "openai")
-- `MODEL_TEMPERATURE`: Model temperature (default: "0.3")
-- `MODEL_TOKEN`: Max tokens (default: "4000")
+- `MODEL_TEMPERATURE`: Model temperature
+- `MODEL_MAX_TOKENS`: Max tokens
 
 </details>
 
@@ -78,47 +78,48 @@ Checkout: [How to Build a Multi-Agent System with Awesome Open Source Agents usi
 For Linux or MAC:
 
 ```bash
-# PROJECT_DIR="/PATH/TO/YOUR/PROJECT"
-
-applications:
-  - id: "jfrog-app"
-    name: "JFrog MCP Application"
-    description: "JFrog Artifactory management agent for repository and package operations"
-    privacyKeys:
-      - "default-key"
-      - "public"
-      - "priv"
 
 registry:
+    # ... your other agents
   jfrog-mcp:
     options:
-      - name: "API_KEY"
+      - name: "MODEL_API_KEY"
         type: "string"
-        description: "API key for the LLM service"
+        description: "API key for the model provider"
+      - name: "MODEL_NAME"
+        type: "string"
+        description: "What model to use (e.g 'gpt-4o')"
+        default: "gpt-4.1-mini"
+      - name: "MODEL_PROVIDER"
+        type: "string"
+        description: "What model provider to use (e.g 'openai', 'groq', etc)"
+        default: "openai"
+      - name: "MODEL_MAX_TOKENS"
+        type: "string"
+        description: "Max tokens to use"
+        default: "8000"
+      - name: "MODEL_TEMPERATURE"
+        type: "string"
+        description: "What model temperature to use"
+        default: "0.3"
       - name: "JFROG_ACCESS_TOKEN"
         type: "string"
         description: "JFrog platform access token"
       - name: "JFROG_URL"
         type: "string"
-        description: "JFrog instance URL"
+        description: "JFrog instance URL (e.g., https://mycompany.jfrog.io)"
+
     runtime:
       type: "executable"
-      command: ["bash", "-c", "${PROJECT_DIR}/run_agent.sh jfrog-mcp_coral_agent.py"]
+      command: ["bash", "-c", "<replace with path to this agent>/run_agent.sh jfrog-mcp_coral_agent.py"]
       environment:
-        - name: "API_KEY"
-          from: "API_KEY"
-        - name: "JFROG_ACCESS_TOKEN"
-          from: "JFROG_ACCESS_TOKEN"
-        - name: "JFROG_URL"
-          from: "JFROG_URL"
-        - name: "MODEL_NAME"
-          value: "gpt-4o"
-        - name: "MODEL_PROVIDER"
-          value: "openai"
-        - name: "MODEL_TOKEN"
-          value: "4000"
-        - name: "MODEL_TEMPERATURE"
-          value: "0.3"
+        - option: "MODEL_API_KEY"
+        - option: "MODEL_NAME"
+        - option: "MODEL_PROVIDER"
+        - option: "MODEL_MAX_TOKENS"
+        - option: "MODEL_TEMPERATURE"
+        - option: "JFROG_ACCESS_TOKEN"
+        - option: "JFROG_URL"
 
 ```
 
@@ -138,7 +139,7 @@ Ensure that the [Coral Server](https://github.com/Coral-Protocol/coral-server) i
 
 ```bash
 # Run the agent using `uv`:
-uv run python jfrog-mcp_coral_agent.py
+uv run main.py
 ```
 </details>
 
@@ -186,8 +187,8 @@ The JFrog MCP Agent provides comprehensive JFrog Artifactory management capabili
 "Create a new Maven local repository called 'my-maven-local' and set it up for the development environment"
 
 # JFrog Agent Response:
-✅ Successfully created Maven local repository 'my-maven-local'
-📋 Repository Details:
+Successfully created Maven local repository 'my-maven-local'
+Repository Details:
    - Type: Local
    - Package Type: Maven
    - Environment: development
