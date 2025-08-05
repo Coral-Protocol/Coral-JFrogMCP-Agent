@@ -97,7 +97,7 @@ async def upload_to_jfrog(source_file_path: str, target_file_path: str, reposito
             return error
         
         # Get email from environment variable
-        email = os.getenv("JFROG_EMAIL", "k230912@nu.edu.pk")
+        email = os.getenv("JFROG_EMAIL")
         token = os.getenv("JFROG_TOKEN")
         jfrog_url = os.getenv("JFROG_URL")
         
@@ -254,7 +254,7 @@ async def main():
 
     coral_params = {
         "agentId": agentID,
-        "agentDescription": "Pandas Agent interacts with other agents and performs data analysis on excel or csv or spreadsheets via the pandas DataFrames to fulfill user requests."
+        "agentDescription": "JFrog MCP Agent is a specialized agent for managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment capabilities"
     }
 
     query_string = urllib.parse.urlencode(coral_params)
