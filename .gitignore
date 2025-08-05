@@ -64,3 +64,5 @@ uv.lock
 # uv
 .uv/ 
 mcp_tools_list.txt
+
+*jfrog_mcp_coral_agent.egg-info

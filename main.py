@@ -6,9 +6,15 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 import logging
+from langchain_core.tools import StructuredTool
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+from pydantic import BaseModel, Field
+class BuildToolArgs(BaseModel):
+    file_path: str = Field(description="Path to the project directory containing pyproject.toml or setup.py")
 
 
 def get_tools_description(tools):
@@ -16,6 +22,55 @@ def get_tools_description(tools):
         f"Tool: {tool.name}, Schema: {json.dumps(tool.args).replace('{', '{{').replace('}', '}}')}"
         for tool in tools
     )
+
+
+async def python_build_tool(file_path: str) -> str:
+    """
+    Build a Python project using uv at the specified file_path.
+    
+    Args:
+        file_path (str): Path to the project directory containing pyproject.toml or setup.py.
+    
+    Returns:
+        str: Success message or error message if the build fails.
+    """
+    try:
+        # Validate file_path
+        if not os.path.isdir(file_path):
+            error = f"Directory does not exist: {file_path}"
+            logger.error(error)
+            return error
+        
+        # Check for pyproject.toml or setup.py
+        if not (os.path.exists(os.path.join(file_path, "pyproject.toml")) or 
+                os.path.exists(os.path.join(file_path, "setup.py"))):
+            error = f"No pyproject.toml or setup.py found in {file_path}"
+            logger.error(error)
+            return error
+        
+        # Run uv build in the specified directory
+        proc = await asyncio.create_subprocess_exec(
+            "uv", "build", file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=file_path
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode == 0:
+            success_msg = f"Successfully built project at {file_path}. Artifacts in {os.path.join(file_path, 'dist')}"
+            logger.info(success_msg)
+            return success_msg
+        else:
+            error = f"Build failed: {stderr.decode()}"
+            logger.error(error)
+            return error
+            
+    except Exception as e:
+        error = f"Error occurred while processing python build tool: {str(e)}"
+        logger.error(error)
+        traceback.print_exc()
+        return error
 
 async def create_agent(coral_tools, agent_tools):
     coral_tools_description = get_tools_description(coral_tools)
@@ -139,7 +194,16 @@ async def main():
     
     jfrog_tools = await client.get_tools(server_name="MCP-JFrog")
     logger.info(f"JFrog tools count: {len(jfrog_tools)}")
-    
+
+    agent_tools = [
+        StructuredTool.from_function(
+            name="python_build_tool",
+            coroutine=python_build_tool,
+            description="Builds a Python project at the specified file_path using uv, creating distribution packages (source distribution and wheel). " \
+            "Returns a success message with the location of build artifacts or an error message if the build fails.",
+            args_schema=BuildToolArgs
+        )
+    ]
     
     agent_executor = await create_agent(coral_tools, jfrog_tools)
 
