@@ -1,6 +1,6 @@
 import urllib.parse
 from dotenv import load_dotenv
-import os, json, asyncio, traceback
+import os, json, asyncio, traceback, platform, base64
 from langchain.chat_models import init_chat_model
 from langchain.prompts import ChatPromptTemplate
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 class BuildToolArgs(BaseModel):
     file_path: str = Field(description="Path to the project directory containing pyproject.toml or setup.py")
+
+class UploadToJFrogArgs(BaseModel):
+    source_file_path: str = Field(description="Path to the source file to upload")
+    target_file_path: str = Field(description="Target path in JFrog repository (e.g., 'python-packages/my-package.tar.gz')")
+    repository: str = Field(description="JFrog repository name")
 
 
 def get_tools_description(tools):
@@ -72,6 +77,116 @@ async def python_build_tool(file_path: str) -> str:
         traceback.print_exc()
         return error
 
+async def upload_to_jfrog(source_file_path: str, target_file_path: str, repository: str) -> str:
+    """
+    Upload a file to JFrog Artifactory using curl (Linux/WSL) or PowerShell (Windows).
+    
+    Args:
+        source_file_path (str): Path to the source file to upload
+        target_file_path (str): Target path in JFrog repository
+        repository (str): JFrog repository name
+    
+    Returns:
+        str: Success message or error message if the upload fails.
+    """
+    try:
+        # Validate source file exists
+        if not os.path.exists(source_file_path):
+            error = f"Source file does not exist: {source_file_path}"
+            logger.error(error)
+            return error
+        
+        # Get email from environment variable
+        email = os.getenv("JFROG_EMAIL", "k230912@nu.edu.pk")
+        token = os.getenv("JFROG_TOKEN")
+        jfrog_url = os.getenv("JFROG_URL")
+        
+        # Validate required environment variables
+        if not token:
+            error = "JFROG_TOKEN environment variable is not set"
+            logger.error(error)
+            return error
+        
+        if not jfrog_url:
+            error = "JFROG_URL environment variable is not set"
+            logger.error(error)
+            return error
+        
+        # Log the upload attempt for debugging
+        logger.info(f"Attempting to upload {source_file_path} to repository '{repository}' at path '{target_file_path}'")
+        logger.info(f"JFrog URL: {jfrog_url}")
+        logger.info(f"Email: {email}")
+        
+        # Determine platform and execute appropriate command
+        system = platform.system().lower()
+        
+        if system in ["linux", "darwin"]:
+            # Linux/WSL - use curl command
+            curl_cmd = [
+                "curl", f"-u{email}:" + token,
+                "-T", source_file_path,
+                f"{jfrog_url}/artifactory/{repository}/{target_file_path}"
+            ]
+            
+            proc = await asyncio.create_subprocess_exec(
+                *curl_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            
+            if proc.returncode == 0:
+                success_msg = f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}"
+                logger.info(success_msg)
+                return success_msg
+            else:
+                error = f"Upload failed: {stderr.decode()}"
+                logger.error(error)
+                return error
+                
+        elif system == "windows":
+            # Windows - use PowerShell
+            auth_string = f"{email}:{token}"
+            base64_auth = base64.b64encode(auth_string.encode('ascii')).decode('ascii')
+            
+            powershell_cmd = [
+                "powershell", "-Command",
+                f'$base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("{auth_string}")); '
+                f'Invoke-WebRequest -Uri "{jfrog_url}/artifactory/{repository}/{target_file_path}" -Headers @{{Authorization=("Basic {{0}}" -f $base64AuthInfo)}} -Method PUT -InFile "{source_file_path}"'
+            ]
+            
+            # Log the PowerShell command for debugging
+            logger.info(f"Executing PowerShell command: {' '.join(powershell_cmd)}")
+            
+            proc = await asyncio.create_subprocess_exec(
+                *powershell_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            
+            if proc.returncode == 0:
+                success_msg = f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}"
+                logger.info(success_msg)
+                return success_msg
+            else:
+                stdout_output = stdout.decode() if stdout else ""
+                stderr_output = stderr.decode() if stderr else ""
+                error = f"Upload failed: {stderr_output}\nStdout: {stdout_output}"
+                logger.error(error)
+                return error
+        else:
+            error = f"Unsupported platform: {system}"
+            logger.error(error)
+            return error
+            
+    except Exception as e:
+        error = f"Error occurred while uploading to JFrog: {str(e)}"
+        logger.error(error)
+        traceback.print_exc()
+        return error
+
+
 async def create_agent(coral_tools, mcp_tools, agent_tools):
     coral_tools_description = get_tools_description(coral_tools)
     mcp_tools_description = get_tools_description(mcp_tools)
@@ -125,18 +240,26 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
                a. Call the python_build_tool with the provided path
                b. Store the build result and path information for future use
                c. If the build was successful, use this information for subsequent JFrog operations
-            5. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
-            6. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
-            7. If you have previously built artifacts:
+            5. If the instruction involves uploading files to JFrog Artifactory:
+               a. Use the upload_to_jfrog tool with the required parameters:
+                  - source_file_path: Path to the file to upload
+                  - target_file_path: Target path in the repository
+                  - repository: Repository name (required)
+               b. The tool automatically uses environment variables for authentication and JFrog URL
+               c. Handle upload results and report back
+            6. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
+            7. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
+            8. If you have previously built artifacts:
                a. Include the build artifacts path in your JFrog operations
                b. Use the stored build information when uploading or managing artifacts
-            8. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
-            9. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
-            10. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
-            11. Always respond back to the sender agent even if you have no answer or error.
+            9. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
+            10. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
+            11. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
+            12. Always respond back to the sender agent even if you have no answer or error.
             13. Return to step 1 and continue monitoring for new mentions.
 
             These are the list of coral tools: {coral_tools_description}
+            These are the list of mcp tools: {mcp_tools_description}
             These are the list of your JFrog tools: {agent_tools_description}"""
                 ),
                 ("placeholder", "{agent_scratchpad}")
@@ -209,6 +332,14 @@ async def main():
             description="Builds a Python project at the specified file_path using uv, creating distribution packages (source distribution and wheel). " \
             "Returns a success message with the location of build artifacts or an error message if the build fails.",
             args_schema=BuildToolArgs
+        ),
+        StructuredTool.from_function(
+            name="upload_to_jfrog",
+            coroutine=upload_to_jfrog,
+            description="Uploads a file to JFrog Artifactory repository using curl (Linux/WSL) or PowerShell (Windows). " \
+            "Supports cross-platform deployment with automatic platform detection. " \
+            "Returns a success message or error message if the upload fails.",
+            args_schema=UploadToJFrogArgs
         )
     ]
     
