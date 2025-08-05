@@ -72,8 +72,9 @@ async def python_build_tool(file_path: str) -> str:
         traceback.print_exc()
         return error
 
-async def create_agent(coral_tools, agent_tools):
+async def create_agent(coral_tools, mcp_tools, agent_tools):
     coral_tools_description = get_tools_description(coral_tools)
+    mcp_tools_description = get_tools_description(mcp_tools)
     agent_tools_description = get_tools_description(agent_tools)
     
     problematic_tools = []
@@ -192,8 +193,8 @@ async def main():
     coral_tools = await client.get_tools(server_name="coral")
     logger.info(f"Coral tools count: {len(coral_tools)}")
     
-    jfrog_tools = await client.get_tools(server_name="MCP-JFrog")
-    logger.info(f"JFrog tools count: {len(jfrog_tools)}")
+    mcp_tools = await client.get_tools(server_name="MCP-JFrog")
+    logger.info(f"JFrog tools count: {len(mcp_tools)}")
 
     agent_tools = [
         StructuredTool.from_function(
@@ -205,7 +206,7 @@ async def main():
         )
     ]
     
-    agent_executor = await create_agent(coral_tools, jfrog_tools)
+    agent_executor = await create_agent(coral_tools, mcp_tools, agent_tools)
 
     while True:
         try:
