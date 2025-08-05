@@ -343,8 +343,23 @@ async def main():
         # for tool_name, issue in problematic_tools:
         #     logger.warning(f"  - {tool_name}: {issue}")
     logger.info(f"Using {len(valid_tools)} valid tools out of {len(agent_tools)} total tools")
-    
+
     agent_executor = await create_agent(coral_tools, valid_tools)
+
+    valid_tools_dict = {tool.name: tool for tool in valid_tools}
+
+    result1 = await valid_tools_dict['jfrog_execute_aql_query'].ainvoke({
+        "query": 'items.find({"repo":"coral-test","type":"file"}).include("name","path","repo")'
+    })
+
+    result2 = await valid_tools_dict['jfrog_get_artifacts_summary'].ainvoke({
+        "paths": ["coral-test/python-packages/coral_coding_agent-0.1.0-py3-none-any.whl"]
+    })
+
+    logger.info(f"JFrog agent invocation result: {result1}"
+                f"\nJFrog artifacts summary: {result2}")
+
+    # print(valid_tools)
 
     while True:
         try:
