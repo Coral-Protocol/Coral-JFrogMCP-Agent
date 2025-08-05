@@ -120,15 +120,21 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
             Follow these steps in order:
             1. Call wait_for_mentions from coral tools (timeoutMs: 30000) to receive mentions from other agents.
             2. When you receive a mention, keep the thread ID and the sender ID.
-            3. Take 2 seconds to think about the content (instruction) of the message and check only from the list of your JFrog tools available for you to action.
-            4. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
-            5. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
-            6. Call get_artifacts_summary tool only at the end of the plan to get the summary of the artifacts.
-            7. Take 3 seconds and think about the content and see if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
-            8. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
-            9. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
-            10. Always respond back to the sender agent even if you have no answer or error.
-            11. Wait for 2 seconds and repeat the process from step 1.
+            3. Analyze the content (instruction) of the message and check only from the list of your JFrog tools available for you to action.
+            4. If the instruction contains a path for building a project:
+               a. Call the python_build_tool with the provided path
+               b. Store the build result and path information for future use
+               c. If the build was successful, use this information for subsequent JFrog operations
+            5. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
+            6. Only call the JFrog tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
+            7. If you have previously built artifacts:
+               a. Include the build artifacts path in your JFrog operations
+               b. Use the stored build information when uploading or managing artifacts
+            8. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
+            9. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
+            10. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
+            11. Always respond back to the sender agent even if you have no answer or error.
+            13. Return to step 1 and continue monitoring for new mentions.
 
             These are the list of coral tools: {coral_tools_description}
             These are the list of your JFrog tools: {agent_tools_description}"""
