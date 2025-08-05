@@ -80,7 +80,7 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
     problematic_tools = []
     valid_tools = []
     
-    for tool in coral_tools + agent_tools:
+    for tool in coral_tools + mcp_tools + agent_tools:
         try:
             if hasattr(tool, 'args'):
                 def find_refs(obj):
@@ -110,7 +110,7 @@ async def create_agent(coral_tools, mcp_tools, agent_tools):
         logger.warning(f"Found {len(problematic_tools)} problematic tools:")
         for tool_name, issue in problematic_tools:
             logger.warning(f"  - {tool_name}: {issue}")
-    logger.info(f"Using {len(valid_tools)} valid tools out of {len(coral_tools + agent_tools)} total tools")
+    logger.info(f"Using {len(valid_tools)} valid tools out of {len(coral_tools + mcp_tools + agent_tools)} total tools")
     
     prompt = ChatPromptTemplate.from_messages([
         (
