@@ -11,15 +11,17 @@ class BuildAndUploadArgs(BaseModel):
     project_path: str = Field(description="Path to the project directory containing pyproject.toml or setup.py")
     target_file_path: str = Field(description="Target path in JFrog repository (e.g., 'python-packages/my-package.tar.gz')")
     repository: str = Field(description="JFrog repository name")
+    build_required: bool = Field(description="Whether to build the project before uploading", default=True)
 
-async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, repository: str) -> str:
+async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, repository: str, build_required: bool = True) -> str:
     """
-    Builds a Python project using uv and uploads the resulting artifacts to JFrog Artifactory.
+    Builds a Python project using uv (if required) and uploads the resulting artifacts to JFrog Artifactory.
     
     Args:
         project_path (str): Path to the project directory containing pyproject.toml or setup.py
         target_file_path (str): Target path in JFrog repository
         repository (str): JFrog repository name
+        build_required (bool): Whether to build the project before uploading (default: True)
     
     Returns:
         str: Success message or error message if either build or upload fails
@@ -38,20 +40,21 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
             logger.error(error)
             return error
         
-        # Step 2: Build the project
-        proc = await asyncio.create_subprocess_exec(
-            "uv", "build", project_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=project_path
-        )
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            error = f"Build failed: {stderr.decode()}"
-            logger.error(error)
-            return error
+        # Step 2: Build the project if required
+        if build_required:
+            proc = await asyncio.create_subprocess_exec(
+                "uv", "build", project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=project_path
+            )
+            stdout, stderr = await proc.communicate()
             
+            if proc.returncode != 0:
+                error = f"Build failed: {stderr.decode()}"
+                logger.error(error)
+                return error
+                
         # Step 3: Locate build artifacts
         dist_path = os.path.join(project_path, "dist")
         if not os.path.exists(dist_path):
@@ -70,6 +73,7 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
         email = os.getenv("JFROG_EMAIL")
         token = os.getenv("JFROG_TOKEN")
         jfrog_url = os.getenv("JFROG_URL")
+        
         
         if not token:
             error = "JFROG_TOKEN environment variable is not set"

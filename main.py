@@ -120,8 +120,9 @@ async def main():
     StructuredTool.from_function(
         name="build_and_upload_to_jfrog",
         coroutine=build_and_upload_to_jfrog,
-        description="Builds a Python project using uv and uploads the resulting artifacts to JFrog Artifactory. "
+        description="Builds a Python project using uv (if build_required=True) and uploads the resulting artifacts to JFrog Artifactory. "
                     "Supports cross-platform deployment with automatic platform detection. "
+                    "Set build_required=False to skip building and only upload existing artifacts. "
                     "Returns a success message with the location of uploaded artifacts or an error message if either build or upload fails.",
         args_schema=BuildAndUploadArgs,
         ),
