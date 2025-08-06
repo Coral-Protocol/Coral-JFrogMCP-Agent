@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class BuildAndUploadArgs(BaseModel):
     project_path: str = Field(description="Path to the project directory containing pyproject.toml or setup.py")
-    target_file_path: str = Field(description="Target path in JFrog repository (e.g., 'python-packages/my-package.tar.gz')")
+    target_file_path: str = Field(description="Target directory path in JFrog repository (e.g., 'python-packages/' or 'python-packages'). The actual filename will be extracted from the built artifact.")
     repository: str = Field(description="JFrog repository name")
     build_required: bool = Field(description="Whether to build the project before uploading", default=True)
 
@@ -19,7 +19,8 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
     
     Args:
         project_path (str): Path to the project directory containing pyproject.toml or setup.py
-        target_file_path (str): Target path in JFrog repository
+        target_file_path (str): Target directory path in JFrog repository (e.g., 'python-packages/' or 'python-packages'). 
+                               The actual filename will be extracted from the built artifact.
         repository (str): JFrog repository name
         build_required (bool): Whether to build the project before uploading (default: True)
     
@@ -91,14 +92,22 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
         error_messages = []
         
         for source_file_path in artifacts:
-            logger.info(f"Attempting to upload {source_file_path} to repository '{repository}' at path '{target_file_path}'")
+            # Extract filename from source path
+            filename = os.path.basename(source_file_path)
+            # Use target_file_path as directory, append filename
+            if target_file_path.endswith('/'):
+                upload_path = f"{target_file_path}{filename}"
+            else:
+                upload_path = f"{target_file_path}/{filename}"
+            
+            logger.info(f"Attempting to upload {source_file_path} to repository '{repository}' at path '{upload_path}'")
             
             if system in ["linux", "darwin"]:
                 # Linux/WSL - use curl command
                 curl_cmd = [
                     "curl", f"-u{email}:" + token,
                     "-T", source_file_path,
-                    f"{jfrog_url}/artifactory/{repository}/{target_file_path}"
+                    f"{jfrog_url}/artifactory/{repository}/{upload_path}"
                 ]
                 
                 proc = await asyncio.create_subprocess_exec(
@@ -109,7 +118,7 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
                 stdout, stderr = await proc.communicate()
                 
                 if proc.returncode == 0:
-                    success_messages.append(f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}")
+                    success_messages.append(f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{upload_path}")
                 else:
                     error_messages.append(f"Upload failed for {source_file_path}: {stderr.decode()}")
                     
@@ -121,7 +130,7 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
                 powershell_cmd = [
                     "powershell", "-Command",
                     f'$base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("{auth_string}")); '
-                    f'Invoke-WebRequest -Uri "{jfrog_url}/artifactory/{repository}/{target_file_path}" -Headers @{{Authorization=("Basic {{0}}" -f $base64AuthInfo)}} -Method PUT -InFile "{source_file_path}"'
+                    f'Invoke-WebRequest -Uri "{jfrog_url}/artifactory/{repository}/{upload_path}" -Headers @{{Authorization=("Basic {{0}}" -f $base64AuthInfo)}} -Method PUT -InFile "{source_file_path}"'
                 ]
                 
                 logger.info(f"Executing PowerShell command: {' '.join(powershell_cmd)}")
@@ -134,7 +143,7 @@ async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, re
                 stdout, stderr = await proc.communicate()
                 
                 if proc.returncode == 0:
-                    success_messages.append(f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}")
+                    success_messages.append(f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{upload_path}")
                 else:
                     stdout_output = stdout.decode() if stdout else ""
                     stderr_output = stderr.decode() if stderr else ""

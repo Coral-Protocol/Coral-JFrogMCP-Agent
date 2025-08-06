@@ -43,11 +43,12 @@ async def create_agent(coral_tools, agent_tools):
             8. If you have previously built artifacts:
                - Include the build artifacts path in your JFrog operations
                - Use the stored build information when uploading or managing artifacts
-            9. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
-            10. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
-            11. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
-            12. Always respond back to the sender agent even if you have no answer or error.
-            13. Return to step 1 and continue waiting for new mentions.
+            9. If asked for vulnerabilities, invoke the jfrog_get_artifacts_summary tool with the provided parameters: repository_name, all files in the repository.
+            10. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
+            11. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
+            12. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
+            13. Always respond back to the sender agent even if you have no answer or error.
+            14. Return to step 1 and continue waiting for new mentions.
 
             These are the list of coral tools: {coral_tools_description}
             These are the list of Agent tools: {agent_tools_description}"""
