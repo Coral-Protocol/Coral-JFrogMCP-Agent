@@ -13,11 +13,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
-class BuildToolArgs(BaseModel):
-    file_path: str = Field(description="Path to the project directory containing pyproject.toml or setup.py")
-
-class UploadToJFrogArgs(BaseModel):
-    source_file_path: str = Field(description="Path to the source file to upload")
+class BuildAndUploadArgs(BaseModel):
+    project_path: str = Field(description="Path to the project directory containing pyproject.toml or setup.py")
     target_file_path: str = Field(description="Target path in JFrog repository (e.g., 'python-packages/my-package.tar.gz')")
     repository: str = Field(description="JFrog repository name")
 
@@ -28,164 +25,151 @@ def get_tools_description(tools):
         for tool in tools
     )
 
-
-async def python_build_tool(file_path: str) -> str:
+async def build_and_upload_to_jfrog(project_path: str, target_file_path: str, repository: str) -> str:
     """
-    Build a Python project using uv at the specified file_path.
+    Builds a Python project using uv and uploads the resulting artifacts to JFrog Artifactory.
     
     Args:
-        file_path (str): Path to the project directory containing pyproject.toml or setup.py.
-    
-    Returns:
-        str: Success message or error message if the build fails.
-    """
-    try:
-        # Validate file_path
-        if not os.path.isdir(file_path):
-            error = f"Directory does not exist: {file_path}"
-            logger.error(error)
-            return error
-        
-        # Check for pyproject.toml or setup.py
-        if not (os.path.exists(os.path.join(file_path, "pyproject.toml")) or 
-                os.path.exists(os.path.join(file_path, "setup.py"))):
-            error = f"No pyproject.toml or setup.py found in {file_path}"
-            logger.error(error)
-            return error
-        
-        # Run uv build in the specified directory
-        proc = await asyncio.create_subprocess_exec(
-            "uv", "build", file_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=file_path
-        )
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode == 0:
-            success_msg = f"Successfully built project at {file_path}. Artifacts in {os.path.join(file_path, 'dist')}"
-            logger.info(success_msg)
-            return success_msg
-        else:
-            error = f"Build failed: {stderr.decode()}"
-            logger.error(error)
-            return error
-            
-    except Exception as e:
-        error = f"Error occurred while processing python build tool: {str(e)}"
-        logger.error(error)
-        traceback.print_exc()
-        return error
-
-async def upload_to_jfrog(source_file_path: str, target_file_path: str, repository: str) -> str:
-    """
-    Upload a file to JFrog Artifactory using curl (Linux/WSL) or PowerShell (Windows).
-    
-    Args:
-        source_file_path (str): Path to the source file to upload
+        project_path (str): Path to the project directory containing pyproject.toml or setup.py
         target_file_path (str): Target path in JFrog repository
         repository (str): JFrog repository name
     
     Returns:
-        str: Success message or error message if the upload fails.
+        str: Success message or error message if either build or upload fails
     """
     try:
-        # Validate source file exists
-        if not os.path.exists(source_file_path):
-            error = f"Source file does not exist: {source_file_path}"
+        # Step 1: Validate project path
+        if not os.path.isdir(project_path):
+            error = f"Directory does not exist: {project_path}"
             logger.error(error)
             return error
         
-        # Get email from environment variable
+        # Check for pyproject.toml or setup.py
+        if not (os.path.exists(os.path.join(project_path, "pyproject.toml")) or 
+                os.path.exists(os.path.join(project_path, "setup.py"))):
+            error = f"No pyproject.toml or setup.py found in {project_path}"
+            logger.error(error)
+            return error
+        
+        # Step 2: Build the project
+        proc = await asyncio.create_subprocess_exec(
+            "uv", "build", project_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=project_path
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            error = f"Build failed: {stderr.decode()}"
+            logger.error(error)
+            return error
+            
+        # Step 3: Locate build artifacts
+        dist_path = os.path.join(project_path, "dist")
+        if not os.path.exists(dist_path):
+            error = f"No dist directory found at {dist_path}"
+            logger.error(error)
+            return error
+            
+        # Get all artifacts in dist directory
+        artifacts = [os.path.join(dist_path, f) for f in os.listdir(dist_path) if os.path.isfile(os.path.join(dist_path, f))]
+        if not artifacts:
+            error = f"No build artifacts found in {dist_path}"
+            logger.error(error)
+            return error
+            
+        # Step 4: Get JFrog credentials
         email = os.getenv("JFROG_EMAIL")
         token = os.getenv("JFROG_TOKEN")
         jfrog_url = os.getenv("JFROG_URL")
         
-        # Validate required environment variables
         if not token:
             error = "JFROG_TOKEN environment variable is not set"
             logger.error(error)
             return error
-        
+            
         if not jfrog_url:
             error = "JFROG_URL environment variable is not set"
             logger.error(error)
             return error
-        
-        # Log the upload attempt for debugging
-        logger.info(f"Attempting to upload {source_file_path} to repository '{repository}' at path '{target_file_path}'")
-        logger.info(f"JFrog URL: {jfrog_url}")
-        logger.info(f"Email: {email}")
-        
-        # Determine platform and execute appropriate command
+            
+        # Step 5: Upload artifacts
         system = platform.system().lower()
+        success_messages = []
+        error_messages = []
         
-        if system in ["linux", "darwin"]:
-            # Linux/WSL - use curl command
-            curl_cmd = [
-                "curl", f"-u{email}:" + token,
-                "-T", source_file_path,
-                f"{jfrog_url}/artifactory/{repository}/{target_file_path}"
-            ]
+        for source_file_path in artifacts:
+            logger.info(f"Attempting to upload {source_file_path} to repository '{repository}' at path '{target_file_path}'")
             
-            proc = await asyncio.create_subprocess_exec(
-                *curl_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            
-            if proc.returncode == 0:
-                success_msg = f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}"
-                logger.info(success_msg)
-                return success_msg
+            if system in ["linux", "darwin"]:
+                # Linux/WSL - use curl command
+                curl_cmd = [
+                    "curl", f"-u{email}:" + token,
+                    "-T", source_file_path,
+                    f"{jfrog_url}/artifactory/{repository}/{target_file_path}"
+                ]
+                
+                proc = await asyncio.create_subprocess_exec(
+                    *curl_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                
+                if proc.returncode == 0:
+                    success_messages.append(f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}")
+                else:
+                    error_messages.append(f"Upload failed for {source_file_path}: {stderr.decode()}")
+                    
+            elif system == "windows":
+                # Windows - use PowerShell
+                auth_string = f"{email}:{token}"
+                base64_auth = base64.b64encode(auth_string.encode('ascii')).decode('ascii')
+                
+                powershell_cmd = [
+                    "powershell", "-Command",
+                    f'$base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("{auth_string}")); '
+                    f'Invoke-WebRequest -Uri "{jfrog_url}/artifactory/{repository}/{target_file_path}" -Headers @{{Authorization=("Basic {{0}}" -f $base64AuthInfo)}} -Method PUT -InFile "{source_file_path}"'
+                ]
+                
+                logger.info(f"Executing PowerShell command: {' '.join(powershell_cmd)}")
+                
+                proc = await asyncio.create_subprocess_exec(
+                    *powershell_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                
+                if proc.returncode == 0:
+                    success_messages.append(f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}")
+                else:
+                    stdout_output = stdout.decode() if stdout else ""
+                    stderr_output = stderr.decode() if stderr else ""
+                    error_messages.append(f"Upload failed for {source_file_path}: {stderr_output}\nStdout: {stdout_output}")
             else:
-                error = f"Upload failed: {stderr.decode()}"
+                error = f"Unsupported platform: {system}"
                 logger.error(error)
                 return error
                 
-        elif system == "windows":
-            # Windows - use PowerShell
-            auth_string = f"{email}:{token}"
-            base64_auth = base64.b64encode(auth_string.encode('ascii')).decode('ascii')
+        # Step 6: Compile results
+        if error_messages:
+            combined_errors = "\n".join(error_messages)
+            logger.error(f"Some uploads failed:\n{combined_errors}")
+            return combined_errors
             
-            powershell_cmd = [
-                "powershell", "-Command",
-                f'$base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("{auth_string}")); '
-                f'Invoke-WebRequest -Uri "{jfrog_url}/artifactory/{repository}/{target_file_path}" -Headers @{{Authorization=("Basic {{0}}" -f $base64AuthInfo)}} -Method PUT -InFile "{source_file_path}"'
-            ]
+        if success_messages:
+            combined_success = "\n".join(success_messages)
+            logger.info(f"All uploads successful:\n{combined_success}")
+            return combined_success
             
-            # Log the PowerShell command for debugging
-            logger.info(f"Executing PowerShell command: {' '.join(powershell_cmd)}")
-            
-            proc = await asyncio.create_subprocess_exec(
-                *powershell_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            
-            if proc.returncode == 0:
-                success_msg = f"Successfully uploaded {source_file_path} to {jfrog_url}/artifactory/{repository}/{target_file_path}"
-                logger.info(success_msg)
-                return success_msg
-            else:
-                stdout_output = stdout.decode() if stdout else ""
-                stderr_output = stderr.decode() if stderr else ""
-                error = f"Upload failed: {stderr_output}\nStdout: {stdout_output}"
-                logger.error(error)
-                return error
-        else:
-            error = f"Unsupported platform: {system}"
-            logger.error(error)
-            return error
-            
+        return "No artifacts were uploaded due to an unknown error"
+        
     except Exception as e:
-        error = f"Error occurred while uploading to JFrog: {str(e)}"
+        error = f"Error occurred during build and upload: {str(e)}"
         logger.error(error)
-        traceback.print_exc()
         return error
-
 
 async def create_agent(coral_tools, agent_tools):
     coral_tools_description = get_tools_description(coral_tools)
@@ -195,34 +179,27 @@ async def create_agent(coral_tools, agent_tools):
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            f"""You are an JFrog agent interacting with the tools from Coral Server and your Agent Tools. 
-            Your task is managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment capabilities.
+            f"""You are an JFrog agent interacting with the tools from Coral Server and your Agent Tools. Your task is managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment capabilities.
 
             Follow these steps in order:
             1. Call wait_for_mentions from coral tools (timeoutMs: 30000) to receive mentions from other agents.
             2. When you receive a mention, keep the thread ID and the sender ID.
             3. Analyze the content (instruction) of the message and check only from the list of your Agent Tools available for you to action.
-            4. If the instruction contains a path for building a project:
-               a. Call the python_build_tool with the provided path
-               b. Store the build result and path information for future use
-               c. If the build was successful, use this information for subsequent JFrog operations
-            5. If the instruction involves uploading files to JFrog Artifactory:
-               a. Use the upload_to_jfrog tool with the required parameters:
-                  - source_file_path: Path to the file to upload
-                  - target_file_path: Target path in the repository
-                  - repository: Repository name (required)
-               b. The tool automatically uses environment variables for authentication and JFrog URL
-               c. Handle upload results and report back
+            4. If the instruction contains a path for building and uploading a project: a. Call the build_and_upload_to_jfrog tool with the provided parameters:
+               - project_path: Path to the project directory
+               - target_file_path: Target path in the repository
+               - repository: Repository name (required). Store the result and path information for future use.
+               - if the operation was successful, use this information for subsequent JFrog operations
             6. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
-            7. Only call the Agent tools you need to perform for each step of the plan to complete the instruction in the content(Do not call any other tool/tools unnecessarily).
+            7. Only call the Agent tools you need to perform for each step of the plan to complete the instruction in the content (Do not call any other tool/tools unnecessarily).
             8. If you have previously built artifacts:
-               a. Include the build artifacts path in your JFrog operations
-               b. Use the stored build information when uploading or managing artifacts
+               - Include the build artifacts path in your JFrog operations
+               - Use the stored build information when uploading or managing artifacts
             9. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
             10. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
             11. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
             12. Always respond back to the sender agent even if you have no answer or error.
-            13. Return to step 1 and continue monitoring for new mentions.
+            13. Return to step 1 and continue waiting for new mentions.
 
             These are the list of coral tools: {coral_tools_description}
             These are the list of Agent tools: {agent_tools_description}"""
@@ -293,20 +270,13 @@ async def main():
 
     agent_tools = mcp_tools + [
         StructuredTool.from_function(
-            name="python_build_tool",
-            coroutine=python_build_tool,
-            description="Builds a Python project at the specified file_path using uv, creating distribution packages (source distribution and wheel). " \
-            "Returns a success message with the location of build artifacts or an error message if the build fails.",
-            args_schema=BuildToolArgs
+            name="build_and_upload_to_jfrog",
+            coroutine=build_and_upload_to_jfrog,
+            description="Builds a Python project using uv and uploads the resulting artifacts to JFrog Artifactory. "
+                        "Supports cross-platform deployment with automatic platform detection. "
+                        "Returns a success message with the location of uploaded artifacts or an error message if either build or upload fails.",
+            args_schema=BuildAndUploadArgs,
         ),
-        StructuredTool.from_function(
-            name="upload_to_jfrog",
-            coroutine=upload_to_jfrog,
-            description="Uploads a file to JFrog Artifactory repository using curl (Linux/WSL) or PowerShell (Windows). " \
-            "Supports cross-platform deployment with automatic platform detection. " \
-            "Returns a success message or error message if the upload fails.",
-            args_schema=UploadToJFrogArgs
-        )
     ]
 
     problematic_tools = []
