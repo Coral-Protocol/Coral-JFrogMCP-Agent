@@ -287,7 +287,7 @@ step3:
 
 Watch the JFrog MCP Agent in action:
 
-[![Demo Video](https://github.com/Coral-Protocol/Coral-JFrogMCP-Agent/blob/main/demo/jfrog-demo.mp4)]
+![Demo Video](https://drive.google.com/file/d/1CoYG306ZZxkF33EuJMKBQwWI5rLFpk_1/view?usp=sharing)
 
 ## Creator Details
 - **Name**: Mustafa Khan
