@@ -283,6 +283,12 @@ step3:
 ![Step 3](img/output3.png)
 </details>
 
+## Demo Video
+
+Watch the JFrog MCP Agent in action:
+
+https://github.com/Coral-Protocol/Coral-JFrogMCP-Agent/blob/main/demo/jfrog-demo.mp4
+
 ## Creator Details
 - **Name**: Mustafa Khan
 - **Affiliation**: Coral Protocol
