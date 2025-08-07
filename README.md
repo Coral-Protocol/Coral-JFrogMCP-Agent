@@ -48,17 +48,45 @@ cp -r .env_sample .env
 ```
 
 Required environment variables:
-- `MODEL_API_KEY`: Your LLM provider API key
-- `MODEL_NAME`: LLM model name
-- `MODEL_PROVIDER`: LLM provider
-- `CORAL_SSE_URL`: Coral server SSE endpoint URL
-- `CORAL_AGENT_ID`: Your Coral agent identifier
-- `JFROG_ACCESS_TOKEN`: JFrog platform access token
+
+LLM Provider Settings:
+- `MODEL_API_KEY`: Your LLM provider API key (e.g., from OpenAI, Groq, etc.)
+- `MODEL_NAME`: LLM model name (default: "gpt-4.1-mini")
+- `MODEL_PROVIDER`: LLM provider (default: "openai", can be "groq" or others)
+
+JFrog Settings:
+- `JFROG_ACCESS_TOKEN`: JFrog platform access token (generated from JFrog platform)
+- `JFROG_TOKEN`: JFrog token (generated using steps below)
+- `JFROG_EMAIL`: Your email used for JFrog account registration
 - `JFROG_URL`: Your JFrog instance URL (e.g., https://mycompany.jfrog.io)
 
+For generating `JFROG_TOKEN`:
+
+step1:
+
+![Step 1](img/token1.png)
+
+step2:
+
+![Step 2](img/token2.png)
+
+For generating `JFROG_ACCESS_TOKEN`:
+
+step1:
+
+![Step 1](img/access_token1.png)
+
+step2:
+
+![Step 2](img/access_token2.png)
+
+step3:
+
+![Step 3](img/access_token3.png)
+
 Optional environment variables:
-- `MODEL_TEMPERATURE`: Model temperature
-- `MODEL_MAX_TOKENS`: Max tokens
+- `MODEL_TEMPERATURE`: Model temperature (default: "0.3")
+- `MODEL_MAX_TOKENS`: Max tokens (default: "8000")
 
 </details>
 
@@ -105,6 +133,12 @@ registry:
       - name: "JFROG_ACCESS_TOKEN"
         type: "string"
         description: "JFrog platform access token"
+      - name: "JFROG_TOKEN"
+        type: "string"
+        description: "JFrog token generated from platform settings"
+      - name: "JFROG_EMAIL"
+        type: "string"
+        description: "Email used for JFrog account registration"
       - name: "JFROG_URL"
         type: "string"
         description: "JFrog instance URL (e.g., https://mycompany.jfrog.io)"
@@ -119,6 +153,8 @@ registry:
         - option: "MODEL_MAX_TOKENS"
         - option: "MODEL_TEMPERATURE"
         - option: "JFROG_ACCESS_TOKEN"
+        - option: "JFROG_TOKEN"
+        - option: "JFROG_EMAIL"
         - option: "JFROG_URL"
 
 ```
@@ -142,6 +178,32 @@ Ensure that the [Coral Server](https://github.com/Coral-Protocol/coral-server) i
 uv run main.py
 ```
 </details>
+
+## Core Tools
+
+The JFrog MCP Agent provides a comprehensive suite of 31 tools for JFrog Artifactory management and security analysis. Below are some of the key tools available:
+
+### Repository Management Tools
+
+#### `create_local_repository`
+Creates a new local repository in Artifactory.
+
+#### `create_remote_repository`
+Creates a new remote repository to proxy external package registries.
+
+
+#### `create_virtual_repository`
+Creates a virtual repository that aggregates multiple repositories.
+
+
+### Security Analysis Tools
+
+#### `jfrog_get_vulnerability_info`
+Retrieves detailed information about specific vulnerabilities.
+
+
+#### `jfrog_get_artifacts_summary`
+Generates a summary of artifact issues categorized by severity.
 
 ## Capabilities
 
@@ -184,19 +246,41 @@ The JFrog MCP Agent provides comprehensive JFrog Artifactory management capabili
 
 ```bash
 # Input from orchestrating agent:
-"Create a new Maven local repository called 'my-maven-local' and set it up for the development environment"
+"Create a new generic local repository called 'test'and set it up for the development environment"
 
 # JFrog Agent Response:
-Successfully created Maven local repository 'my-maven-local'
+Successfully created test local repository 'test'
 Repository Details:
    - Type: Local
-   - Package Type: Maven
+   - Package Type: Generic
    - Environment: development
    - Status: Active
    
 Repository is ready for artifact storage and retrieval.
 
 ```
+
+Example of building and vulnerability scanning workflow:
+
+```bash
+# Input from orchestrating agent:
+"Ask Jfrog agent to find project code in the path: '/path/to/your/project', make a build for this project and upload it to test repository in Jfrog. Then test the vulnerabilities for it"
+
+# JFrog Agent Response:
+The repository named 'test' contains the following
+artifacts: - It will list your artifacts and provide you with the vulnerabities. 
+```
+step1:
+
+![Step 1](img/output1.png)
+
+step2:
+
+![Step 2](img/output2.png)
+
+step3:
+
+![Step 3](img/output3.png)
 </details>
 
 ## Creator Details
