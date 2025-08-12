@@ -7,7 +7,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 import logging
 from langchain_core.tools import StructuredTool
-from utils.agent_tools import build_and_upload_to_jfrog, BuildAndUploadArgs
+from utils.agent_tools import build_and_upload_to_jfrog, BuildAndUploadArgs, jfrog_scan_project, JFrogScanArgs
 
 
 logging.basicConfig(level=logging.INFO)
@@ -19,9 +19,10 @@ def get_tools_description(tools):
         for tool in tools
     )
 
-async def create_agent(coral_tools, agent_tools):
+async def create_agent(coral_tools, agent_tools, mcp_tools):
     coral_tools_description = get_tools_description(coral_tools)
     agent_tools_description = get_tools_description(agent_tools)
+    mcp_tools_description = get_tools_description(mcp_tools)
     combined_tools = coral_tools + agent_tools
     
     prompt = ChatPromptTemplate.from_messages([
@@ -44,13 +45,16 @@ async def create_agent(coral_tools, agent_tools):
                - Include the build artifacts path in your JFrog operations
                - Use the stored build information when uploading or managing artifacts
             9. If asked for vulnerabilities, invoke the jfrog_get_artifacts_summary tool with the provided parameters: repository_name, all files in the repository.
-            10. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
-            11. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
-            12. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
-            13. Always respond back to the sender agent even if you have no answer or error.
-            14. Return to step 1 and continue waiting for new mentions.
+            10. If asked for scan, invoke the jfrog_scan_project tool with the provided parameters: project_path. You should scan build files like .tar.gz. etc.
+            11. If you have both mcp and agent tools for a specific task, prioritize agent tools over mcp tools.
+            12. Review if you have executed the instruction to the best of your ability and the tools. Make this your response as "answer".
+            13. Use `send_message` from coral tools to send a message in the same thread ID to the sender Id you received the mention from, with content: "answer".
+            14. If any error occurs, use `send_message` to send a message in the same thread ID to the sender Id you received the mention from, with content: "error".
+            15. Always respond back to the sender agent even if you have no answer or error.
+            16. Return to step 1 and continue waiting for new mentions.
 
             These are the list of coral tools: {coral_tools_description}
+            These are the list of MCP tools: {mcp_tools_description}
             These are the list of Agent tools: {agent_tools_description}"""
                 ),
                 ("placeholder", "{agent_scratchpad}")
@@ -80,7 +84,7 @@ async def main():
 
     coral_params = {
         "agentId": agentID,
-        "agentDescription": "JFrog MCP Agent is a specialized agent for managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment capabilities"
+        "agentDescription": "JFrog MCP Agent is a specialized agent for managing and interacting with JFrog Artifactory repositories, providing comprehensive repository management, package information retrieval, and vulnerability assessment scans and capabilities"
     }
 
     query_string = urllib.parse.urlencode(coral_params)
@@ -117,7 +121,7 @@ async def main():
     mcp_tools = await client.get_tools(server_name="MCP-JFrog")
     logger.info(f"JFrog tools count: {len(mcp_tools)}")
 
-    agent_tools = mcp_tools + [
+    agent_tools = [
     StructuredTool.from_function(
         name="build_and_upload_to_jfrog",
         coroutine=build_and_upload_to_jfrog,
@@ -127,12 +131,23 @@ async def main():
                     "Returns a success message with the location of uploaded artifacts or an error message if either build or upload fails.",
         args_schema=BuildAndUploadArgs,
         ),
+    StructuredTool.from_function(
+        name="jfrog_scan_project",
+        coroutine=jfrog_scan_project,
+        description="Scans build artifacts in a project directory using JFrog CLI for vulnerabilities and license compliance. "
+                    "Automatically detects build files (.tar.gz, .whl, .jar, etc.) in common build directories (dist, build, target, etc.) "
+                    "and executes 'jf scan <build_file>' on each individual build artifact. "
+                    "If no build artifacts found, scans the entire project directory. "
+                    "Requires JFrog CLI to be installed and configured. "
+                    "Returns scan output or error message if scan fails.",
+        args_schema=JFrogScanArgs,
+        ),
     ]
 
     problematic_tools = []
     valid_tools = []
     
-    for tool in agent_tools:
+    for tool in mcp_tools:
         try:
             if hasattr(tool, 'args'):
                 def find_refs(obj):
@@ -162,22 +177,22 @@ async def main():
     #     logger.warning(f"Found {len(problematic_tools)} problematic tools:")
         # for tool_name, issue in problematic_tools:
         #     logger.warning(f"  - {tool_name}: {issue}")
-    logger.info(f"Using {len(valid_tools)} valid tools out of {len(agent_tools)} total tools")
+    logger.info(f"Using {len(valid_tools)} valid tools out of {len(mcp_tools)} total tools")
 
-    agent_executor = await create_agent(coral_tools, valid_tools)
+    agent_executor = await create_agent(coral_tools, agent_tools, valid_tools)
 
     valid_tools_dict = {tool.name: tool for tool in valid_tools}
 
-    result1 = await valid_tools_dict['jfrog_execute_aql_query'].ainvoke({
-        "query": 'items.find({"repo":"coral-test","type":"file"}).include("name","path","repo")'
-    })
+    #result1 = await valid_tools_dict['jfrog_execute_aql_query'].ainvoke({
+    #    "query": 'items.find({"repo":"coral-test","type":"file"}).include("name","path","repo")'
+    #})
 
-    result2 = await valid_tools_dict['jfrog_get_artifacts_summary'].ainvoke({
-        "paths": ["coral-test/python-packages/coral_coding_agent-0.1.0-py3-none-any.whl"]
-    })
+    #result2 = await valid_tools_dict['jfrog_get_artifacts_summary'].ainvoke({
+    #    "paths": ["coral-test/python-packages/coral_coding_agent-0.1.0-py3-none-any.whl"]
+    #})
 
-    logger.info(f"JFrog agent invocation result: {result1}"
-                f"\nJFrog artifacts summary: {result2}")
+    #logger.info(f"JFrog agent invocation result: {result1}"
+    #            f"\nJFrog artifacts summary: {result2}")
 
     while True:
         try:
