@@ -7,7 +7,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 import logging
 from langchain_core.tools import StructuredTool
-from utils.agent_tools import build_and_upload_to_jfrog, BuildAndUploadArgs, jfrog_scan_project, JFrogScanArgs
+from utils.agent_tools import build_project, BuildProjectArgs, upload_to_jfrog, UploadToJfrogArgs, jfrog_scan_project, JFrogScanArgs
 
 
 logging.basicConfig(level=logging.INFO)
@@ -34,11 +34,13 @@ async def create_agent(coral_tools, agent_tools, mcp_tools):
             1. Call wait_for_mentions from coral tools (timeoutMs: 30000) to receive mentions from other agents.
             2. When you receive a mention, keep the thread ID and the sender ID.
             3. Analyze the content (instruction) of the message and check only from the list of your Agent Tools available for you to action.
-            4. If the instruction contains a path for building and uploading a project: a. Call the build_and_upload_to_jfrog tool with the provided parameters:
-               - project_path: Path to the project directory
-               - target_file_path: Target path in the repository
-               - repository: Repository name (required). Store the result and path information for future use.
-               - if the operation was successful, use this information for subsequent JFrog operations
+            4. If the instruction contains a path for building a project: a. Call the build_project tool with the provided parameters:
+                - project_path: Path to the project directory
+                - build_required: Whether to build the project (default: True). Store the result and build artifacts information for future use.
+             5. If the instruction contains a path for uploading a project: a. Call the upload_to_jfrog tool with the provided parameters:
+                - project_path: Path to the project directory
+                - target_file_path: Target path in the repository
+                - if the operation was successful, use this information for subsequent JFrog operations
             6. Check the tool schema and make a plan in steps for the JFrog task you want to perform.
             7. Only call the Agent tools you need to perform for each step of the plan to complete the instruction in the content (Do not call any other tool/tools unnecessarily).
             8. If you have previously built artifacts:
@@ -123,13 +125,22 @@ async def main():
 
     agent_tools = [
     StructuredTool.from_function(
-        name="build_and_upload_to_jfrog",
-        coroutine=build_and_upload_to_jfrog,
-        description="Builds a Python project using uv (if build_required=True) and uploads the resulting artifacts to JFrog Artifactory. "
-                    "Supports cross-platform deployment with automatic platform detection. "
-                    "Set build_required=False to skip building and only upload existing artifacts. "
-                    "Returns a success message with the location of uploaded artifacts or an error message if either build or upload fails.",
-        args_schema=BuildAndUploadArgs,
+        name="build_project",
+        coroutine=build_project,
+        description="Builds a Python project using uv. "
+                    "Creates build artifacts in the dist/ directory. "
+                    "Set build_required=False to skip building and only check for existing artifacts. "
+                    "Returns a success message with the location of build artifacts or an error message if build fails.",
+        args_schema=BuildProjectArgs,
+        ),
+    StructuredTool.from_function(
+        name="upload_to_jfrog",
+        coroutine=upload_to_jfrog,
+        description="Uploads built artifacts from a project's dist directory to JFrog Artifactory using JFrog CLI. "
+                    "Uses 'jf rt u <FILE_PATH> <REMOTE_REPOSITORY_PATH>' command for uploads. "
+                    "Requires JFrog CLI to be installed and configured. "
+                    "Returns a success message with the location of uploaded artifacts or an error message if upload fails.",
+        args_schema=UploadToJfrogArgs,
         ),
     StructuredTool.from_function(
         name="jfrog_scan_project",
